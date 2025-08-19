@@ -139,9 +139,69 @@ class ShopifyClient:
         logger.info(f"Fetched {len(all_products)} products from Shopify.")
         return all_products
     
+    async def get_product_by_id(self, product_id: str) -> Optional[Dict[str, Any]]:
+        query = gql("""
+            query GetProductById($id: ID!) {
+                product(id: $id) {
+                    id
+                    title
+                    handle
+                    description
+                    productType
+                    vendor
+                    tags
+                    status
+                    createdAt
+                    updatedAt
+                    priceRangeV2 {
+                        minVariantPrice {
+                            amount
+                            currencyCode
+                        }
+                        maxVariantPrice {
+                            amount
+                            currencyCode
+                        }
+                    }
+                    variants(first: 100) {
+                        edges {
+                            node {
+                                id
+                                title
+                                price
+                                compareAtPrice
+                                sku
+                                inventoryQuantity
+                                availableForSale
+                                selectedOptions {
+                                    name
+                                    value
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        """)
+        
+        variables = {"id": product_id}
+        try:
+            if not self.client:
+                await self.connect()
+            result = await self.client.execute_async(query, variable_values=variables)
+            product = result.get("product")
+            if product:
+                logger.info(f"Fetched product with ID {product_id}")
+            else:
+                logger.warning(f"No product found with ID {product_id}")
+            return product
+        except Exception as e:
+            logger.error(f"Error fetching product by ID {product_id}: {e}")
+            return None
+
 async def main():
-    async with ShopifyClient() as client:
-        products = await client.fetch_all_products()
+        async with ShopifyClient() as client:
+            products = await client.fetch_all_products()
         print(f"Total products fetched: {len(products)}")
         if products:
             print("First product sample:")
