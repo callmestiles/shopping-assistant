@@ -198,6 +198,50 @@ class ShopifyClient:
         except Exception as e:
             logger.error(f"Error fetching product by ID {product_id}: {e}")
             return None
+    
+    async def search_products(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        search_query = gql("""
+            query SearchProducts($query: String!, $first: Int!) {
+                products(query: $query, first: $first) {
+                    edges {
+                        node {
+                            id
+                            title
+                            handle
+                            description
+                            productType
+                            vendor
+                            tags
+                            status
+                            createdAt
+                            updatedAt
+                            priceRangeV2 {
+                                minVariantPrice {
+                                    amount
+                                    currencyCode
+                                }
+                                maxVariantPrice {
+                                    amount
+                                    currencyCode
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        """)
+        
+        variables = {"query": query, "first": limit}
+        try:
+            if not self.client:
+                await self.connect()
+            result = await self.client.execute_async(search_query, variable_values=variables)
+            products = [edge["node"] for edge in result["products"]["edges"]]
+            logger.info(f"Found {len(products)} products matching query '{query}'")
+            return products
+        except Exception as e:
+            logger.error(f"Error searching products: {e}")
+            return []
 
 async def main():
         async with ShopifyClient() as client:
