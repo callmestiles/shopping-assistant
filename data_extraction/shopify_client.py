@@ -7,7 +7,6 @@ from config.settings import settings, get_shopify_graphql_url, get_shopify_heade
 import logging
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 class ShopifyClient:
     def __init__(self):
@@ -245,14 +244,3 @@ class ShopifyClient:
         except Exception as e:
             logger.error(f"Error searching products: {e}")
             return []
-
-async def main():
-        async with ShopifyClient() as client:
-            products = await client.fetch_all_products()
-        print(f"Total products fetched: {len(products)}")
-        if products:
-            print("First product sample:")
-            print(products[0])  # print first product for verification
-
-if __name__ == "__main__":
-    asyncio.run(main())
