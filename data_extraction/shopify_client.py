@@ -53,6 +53,7 @@ class ShopifyClient:
                             title
                             handle
                             description
+                            descriptionHtml
                             productType
                             vendor
                             tags
@@ -147,6 +148,7 @@ class ShopifyClient:
                     title
                     handle
                     description
+                    descriptionHtml
                     productType
                     vendor
                     tags
@@ -209,6 +211,7 @@ class ShopifyClient:
                             title
                             handle
                             description
+                            descriptionHtml
                             productType
                             vendor
                             tags
