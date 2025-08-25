@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     SHOPIFY_SHOP_URL: str = Field(..., description="The URL of the Shopify shop")
     SHOPIFY_ACCESS_TOKEN: str = Field(..., description="Access token for Shopify API")
     SHOPIFY_API_VERSION: str = Field(default="2025-07", description="API version for Shopify")
+    OPENAI_KEY: Optional[str] = Field(default=None, description="OpenAI API key for LLM features")
+
 
     class Config:
         env_file = ".env"

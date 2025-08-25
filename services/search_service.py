@@ -12,11 +12,11 @@ class SearchResult:
         self.confidence = self._calculate_confidence(score)
     
     def _calculate_confidence(self, score: float) -> str:
-        if score > 0.8:
+        if score > 0.7:
             return "high"
-        elif score > 0.6:
+        elif score > 0.5:
             return "medium"
-        elif score > 0.4:
+        elif score > 0.3:
             return "low"
         else:
             return "very_low"
@@ -51,12 +51,6 @@ class ProductSearchService:
         self._is_initialized = False
     
     async def initialize_from_products(self, products: List[Dict[str, Any]]):
-        """
-        Initialize the search service with product data.
-        
-        This is what you'll call with the products from your Shopify client.
-        It handles the entire vectorization and indexing process.
-        """
         logger.info("Initializing search service with product data...")
         
         if not products:
@@ -82,18 +76,8 @@ class ProductSearchService:
             logger.error(f"Failed to initialize search service: {e}")
             return False
     
-    def search(self, query: str, max_results: int = 10, min_score: float = 0.3) -> List[SearchResult]:
-        """
-        Search for products matching the query.
-        
-        Args:
-            query: User's search query (e.g., "red dress size large")
-            max_results: Maximum number of results to return
-            min_score: Minimum similarity score threshold
-            
-        Returns:
-            List of SearchResult objects sorted by relevance
-        """
+    def search(self, query: str, max_results: int = 10, min_score: float = 0.5, 
+           requirements: Optional[Dict[str, Any]] = None) -> List[SearchResult]:
         if not self._is_initialized:
             logger.error("Search service not initialized")
             return []
@@ -103,22 +87,147 @@ class ProductSearchService:
             return []
         
         try:
+            # Get base similarity results
             query_embedding = self.vectorizer.vectorize_query(query)
+            raw_results = self.vector_store.search(query_embedding, max_results * 2)  # Get more for filtering
             
-            raw_results = self.vector_store.search(query_embedding, max_results)
+            # Log the similarity scores for debugging
+            logger.info(f"Raw similarity scores for query '{query}': {[score for _, score in raw_results[:5]]}")
             
             search_results = []
             for product_embedding, score in raw_results:
                 if score >= min_score:
                     search_result = SearchResult(product_embedding, score)
                     search_results.append(search_result)
+                else:
+                    logger.debug(f"Filtered out result with score {score:.3f} (below threshold {min_score})")
             
-            logger.info(f"Found {len(search_results)} products for query: '{query}'")
+            # Log how many results passed the threshold
+            logger.info(f"Results above threshold {min_score}: {len(search_results)} out of {len(raw_results)}")
+            
+            # Apply requirement-based filtering and scoring
+            if requirements:
+                search_results = self._filter_and_rerank_by_requirements(search_results, requirements)
+            
+            # Limit to requested number
+            search_results = search_results[:max_results]
+            
+            # Final logging
+            if search_results:
+                logger.info(f"Found {len(search_results)} products for query: '{query}' with scores: {[r.score for r in search_results]}")
+            else:
+                logger.info(f"No products found for query: '{query}' above similarity threshold {min_score}")
+            
             return search_results
             
         except Exception as e:
             logger.error(f"Search failed for query '{query}': {e}")
             return []
+
+    def _filter_and_rerank_by_requirements(self, results: List[SearchResult], 
+                                        requirements: Dict[str, Any]) -> List[SearchResult]:
+        filtered_results = []
+        
+        for result in results:
+            product = result.product
+            match_score = result.score
+            penalty = 0.0
+            bonus = 0.0
+            
+            # Product type matching
+            if requirements.get('product_type'):
+                required_type = requirements['product_type'].lower()
+                product_type = (product.product_type or '').lower()
+                
+                # Direct match
+                if required_type == product_type:
+                    bonus += 0.1
+                # Partial match in title or description
+                elif required_type in product.title.lower() or required_type in product.description.lower():
+                    bonus += 0.05
+                # Type mismatch penalty
+                elif product_type and required_type not in product_type:
+                    penalty += 0.15
+            
+            # Color matching
+            if requirements.get('color'):
+                required_color = requirements['color'].lower()
+                product_text = f"{product.title} {product.description} {' '.join(product.tags)}".lower()
+                
+                # Check variants for color
+                has_color = any(
+                    any(opt.get('value', '').lower() == required_color 
+                        for opt in variant.get('options', []) 
+                        if opt.get('name', '').lower() in ['color', 'colour'])
+                    for variant in product.variants
+                )
+                
+                if has_color or required_color in product_text:
+                    bonus += 0.08
+                else:
+                    penalty += 0.1
+            
+            # Brand matching
+            if requirements.get('brand'):
+                required_brand = requirements['brand'].lower()
+                product_brand = (product.vendor or '').lower()
+                
+                if required_brand == product_brand:
+                    bonus += 0.1
+                elif required_brand in product_brand or product_brand in required_brand:
+                    bonus += 0.05
+                else:
+                    penalty += 0.15
+            
+            # Size matching
+            if requirements.get('size'):
+                required_size = requirements['size'].lower()
+                
+                # Check variants for size
+                has_size = any(
+                    any(opt.get('value', '').lower() == required_size 
+                        for opt in variant.get('options', []) 
+                        if opt.get('name', '').lower() == 'size')
+                    for variant in product.variants
+                )
+                
+                if has_size:
+                    bonus += 0.05
+                # Don't penalize if no size info available
+            
+            # Price range matching
+            if requirements.get('price_max'):
+                max_price = requirements['price_max']
+                product_min_price = self._extract_min_price(product)
+                
+                if product_min_price and product_min_price <= max_price:
+                    bonus += 0.03
+                elif product_min_price and product_min_price > max_price:
+                    penalty += 0.08
+            
+            # Apply scoring adjustments (but keep them smaller to not override similarity)
+            adjusted_score = max(0.0, match_score + bonus - penalty)
+            
+            # Only include if still above a reasonable threshold after adjustments
+            if adjusted_score >= 0.25:
+                result.score = adjusted_score
+                result.confidence = result._calculate_confidence(adjusted_score)
+                filtered_results.append(result)
+            else:
+                logger.debug(f"Filtered out result after requirements: {product.title} (score: {adjusted_score:.3f})")
+        
+        # Sort by adjusted score
+        filtered_results.sort(key=lambda x: x.score, reverse=True)
+        return filtered_results
+
+    def _extract_min_price(self, product: ProductEmbedding) -> Optional[float]:
+        try:
+            price_range = product.price_range
+            min_price_info = price_range.get('minVariantPrice', {})
+            amount = min_price_info.get('amount')
+            return float(amount) if amount else None
+        except (ValueError, TypeError):
+            return None
     
     def get_product_by_id(self, product_id: str) -> Optional[SearchResult]:
         if not self._is_initialized:
@@ -130,13 +239,6 @@ class ProductSearchService:
         return None
     
     def analyze_query(self, query: str) -> Dict[str, Any]:
-        """
-        Analyze a query to extract potential product attributes.
-        
-        This is useful for understanding what the user is looking for
-        and identifying missing information. We'll expand this later
-        when we add LangGraph.
-        """
         query_lower = query.lower()
         
         # Simple keyword extraction - you can make this more sophisticated

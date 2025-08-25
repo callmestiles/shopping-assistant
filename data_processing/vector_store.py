@@ -123,19 +123,6 @@ class VectorStore:
                     embedding=embedding
                 )
                 self.product_embeddings.append(pe)
-                pe = ProductEmbedding(
-                    product_id=prod_data['product_id'],
-                    title=prod_data['title'],
-                    description=prod_data['description'],
-                    product_type=prod_data['product_type'],
-                    vendor=prod_data['vendor'],
-                    tags=prod_data['tags'],
-                    variants=prod_data['variants'],
-                    price_range=prod_data['price_range'],
-                    combined_text=prod_data['combined_text'],
-                    embedding=embedding
-                )
-                self.product_embeddings.append(pe)
         
         logger.info(f"Vector store loaded from {filepath}")
     
