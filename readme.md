@@ -72,11 +72,3 @@ You can interact with the assistant to search for products, get recommendations,
 ## Contributing
 
 Contributions are welcome! Please open issues or submit pull requests for improvements or bug fixes.
-
-## License
-
-MIT License
-
-## Contact
-
-For questions or support, please contact the maintainer at [your-email@example.com].
